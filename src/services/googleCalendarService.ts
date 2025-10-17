@@ -325,7 +325,6 @@ class GoogleCalendarService {
           tenantId: payload?.tenantId || '689ddc0411e4209395942bee',
           eventType: topic.eventType,
       });
-      console.log('Sending message to Kafka:', message, topics.googleCalendar);
       await producer.sendMessage(topics.googleCalendar, message);
       return true;
       } catch (error) {
@@ -390,11 +389,11 @@ class GoogleCalendarService {
       newMeetings = meetings.filter(meeting => !existingEventIds.has(meeting.eventId));
       
       await GoogleCalendar.bulkWrite(bulkOps);      
-      if (meetings.length > 0) {
-       // await this.sendCalendarEventsMessage(newMeetings);
-        console.log("sending last event", meetings[meetings.length - 1]);
-        const lastRecord = meetings[meetings.length - 1]
-        await this.sendCalendarEventsMessage([lastRecord]);
+      if (newMeetings.length > 0) {
+       await this.sendCalendarEventsMessage(newMeetings);
+        // console.log("sending last event", meetings[meetings.length - 1]);
+        // const lastRecord = meetings[meetings.length - 1]
+        // await this.sendCalendarEventsMessage([lastRecord]);
       }
     }
 
