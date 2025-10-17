@@ -11,10 +11,8 @@ import { setupSwagger } from './config/swagger';
 import { AppError } from './utils/appError';
 import { schedulerService } from './services/schedulerService';
 import { extractUserPrincipal } from '@cuvera/commons';
-import { 
-  createProducer 
-} from '@cuvera/commons';
-// Load environment variables
+import { producer } from './messaging/producer';
+
 dotenv.config();
 
 const app = express();
@@ -79,11 +77,6 @@ process.on('unhandledRejection', async (err: Error) => {
 // Start server
 const server = app.listen(PORT, async () => {
     try {
-      const producer = createProducer({
-        url: process.env.RABBITMQ_URL!,
-        heartbeat: 30,
-        prefetch: 20
-      });
       await producer.initialize();
       console.log(` Server running on port ${PORT}`);
       console.log(` API Documentation available at http://localhost:${PORT}/api-docs`);
