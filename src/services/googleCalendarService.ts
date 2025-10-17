@@ -3,9 +3,8 @@ import { JWT, OAuth2Client } from 'google-auth-library';
 import { GoogleCalendar } from '../models/GoogleCalendar';
 import { generateKafkaMessage, logger } from "@cuvera/commons";
 import { topics } from '../config/rabbitmq';
-import { 
-  sendMessage, 
-} from '@cuvera/commons';
+import { producer } from '../messaging/producer';
+
 interface IMeetingEvent {
   id: string;
   subject: string;
@@ -326,11 +325,10 @@ class GoogleCalendarService {
           tenantId: payload?.tenantId || '689ddc0411e4209395942bee',
           eventType: topic.eventType,
       });
-      console.log('Sending message to Kafka:', message);
-      await sendMessage(topics.googleCalendar, message);
+      console.log('Sending message to Kafka:', message, topics.googleCalendar);
+      await producer.sendMessage(topics.googleCalendar, message);
       return true;
       } catch (error) {
-        console.error(`Error sending message to RabbitMQ: ${error}`);
       logger.error(`Warning: Failed to send message to RabbitMQ: ${error}`);
       return false;
     }
@@ -338,7 +336,6 @@ class GoogleCalendarService {
 
 
   public async getCuveraCalendarEvents(){
-    console.log("getCuveraCalendarEvents");
     try {
       const oAuth2Client = new google.auth.OAuth2(
         process.env.GMAIL_CLIENT_ID!,
@@ -373,7 +370,6 @@ class GoogleCalendarService {
         location: event.location,
         attendees: event.attendees?.map((a) => a.email!),
       }));
-      console.log("meetings", meetings);  
       // Save to database
     let newMeetings: any[] = [];
     const bulkOps = meetings.map(meeting => ({
@@ -394,11 +390,11 @@ class GoogleCalendarService {
       newMeetings = meetings.filter(meeting => !existingEventIds.has(meeting.eventId));
       
       await GoogleCalendar.bulkWrite(bulkOps);      
-      if (newMeetings.length > 0) {
-        await this.sendCalendarEventsMessage(newMeetings);
-        // console.log("sending last event", meetings[meetings.length - 1]);
-        //const lastRecord = meetings[meetings.length - 1]
-        //await this.sendCalendarEventsMessage([lastRecord]);
+      if (meetings.length > 0) {
+       // await this.sendCalendarEventsMessage(newMeetings);
+        console.log("sending last event", meetings[meetings.length - 1]);
+        const lastRecord = meetings[meetings.length - 1]
+        await this.sendCalendarEventsMessage([lastRecord]);
       }
     }
 
