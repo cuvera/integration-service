@@ -22,9 +22,8 @@ const PORT = process.env.PORT || 3000;
 connectDB();
 
 // Start the scheduler
-if (process.env.NODE_ENV !== 'test') {
-  schedulerService.start();
-}
+schedulerService.start();
+
 
 // Security middleware
 app.use(helmet());

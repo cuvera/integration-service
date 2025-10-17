@@ -338,6 +338,7 @@ class GoogleCalendarService {
 
 
   public async getCuveraCalendarEvents(){
+    console.log("getCuveraCalendarEvents");
     try {
       const oAuth2Client = new google.auth.OAuth2(
         process.env.GMAIL_CLIENT_ID!,
@@ -347,7 +348,6 @@ class GoogleCalendarService {
       oAuth2Client.setCredentials({ refresh_token: process.env.GMAIL_REFRESH_TOKEN! });
 
       const calendar = google.calendar({ version: "v3", auth: oAuth2Client });
-
       // Fetch events (for next 10 days in this example)
       const now = new Date();
       const tenDaysLater = new Date();
@@ -373,7 +373,7 @@ class GoogleCalendarService {
         location: event.location,
         attendees: event.attendees?.map((a) => a.email!),
       }));
-
+      console.log("meetings", meetings);  
       // Save to database
     let newMeetings: any[] = [];
     const bulkOps = meetings.map(meeting => ({
