@@ -369,6 +369,7 @@ class GoogleCalendarService {
         attendees: event.attendees?.map((a) => a.email!),
         organizer: event.organizer?.email,
       }));
+      console.log("meetings", meetings);
       // Save to database
     let newMeetings: any[] = [];
     const bulkOps = meetings.map(meeting => ({
