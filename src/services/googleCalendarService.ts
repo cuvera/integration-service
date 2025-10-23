@@ -346,13 +346,12 @@ class GoogleCalendarService {
       const calendar = google.calendar({ version: "v3", auth: oAuth2Client });
       // Fetch events (for next 10 days in this example)
       const now = new Date();
-      const tenDaysLater = new Date();
-      tenDaysLater.setDate(now.getDate() + 10);
+      const nextHour = new Date(now.getTime() + 60 * 60 * 1000);
 
       const response = await calendar.events.list({
         calendarId: "primary", 
-        // timeMin: now.toISOString(),
-        //timeMax: tenDaysLater.toISOString(),
+        timeMin: now.toISOString(),
+        timeMax: nextHour.toISOString(),
         maxResults: 50,
         singleEvents: true,
         orderBy: "startTime",
@@ -368,6 +367,7 @@ class GoogleCalendarService {
         hangoutLink: event.hangoutLink, 
         location: event.location,
         attendees: event.attendees?.map((a) => a.email!),
+        organizer: event.organizer?.email,
       }));
       // Save to database
     let newMeetings: any[] = [];
@@ -387,7 +387,6 @@ class GoogleCalendarService {
       const existingEventIds = new Set(existingEvents.map((e: any) => e.eventId));
       
       newMeetings = meetings.filter(meeting => !existingEventIds.has(meeting.eventId));
-      
       await GoogleCalendar.bulkWrite(bulkOps);      
       if (newMeetings.length > 0) {
        await this.sendCalendarEventsMessage(newMeetings);

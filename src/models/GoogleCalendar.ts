@@ -10,6 +10,8 @@ export interface IGoogleCalendar extends Document {
   attendees: string[] | undefined;
   createdAt: Date;
   updatedAt: Date;
+  organizer: { type: String },
+
 }
 
 const GoogleCalendarSchema = new Schema<IGoogleCalendar>(
@@ -26,6 +28,7 @@ const GoogleCalendarSchema = new Schema<IGoogleCalendar>(
     hangoutLink: { type: String },
     location: { type: String },
     attendees: [{ type: String }],
+    organizer: { type: String },
   },
   {
     timestamps: true,
