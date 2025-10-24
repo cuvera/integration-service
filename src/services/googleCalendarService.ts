@@ -358,7 +358,7 @@ class GoogleCalendarService {
       });
 
       const events = response.data.items || [];
-
+      console.log("events", events);
       const meetings = events.map((event) => ({
         eventId: event.id!,
         summary: event.summary || 'No title',
@@ -368,6 +368,7 @@ class GoogleCalendarService {
         location: event.location,
         attendees: event.attendees?.map((a) => a.email!),
         organizer: event.organizer?.email,
+        recurringEventId: event.recurringEventId,
       }));
       console.log("meetings", meetings);
       // Save to database

@@ -11,6 +11,7 @@ export interface IGoogleCalendar extends Document {
   createdAt: Date;
   updatedAt: Date;
   organizer: { type: String },
+  recurringEventId: string | null | undefined,
 
 }
 
@@ -29,6 +30,7 @@ const GoogleCalendarSchema = new Schema<IGoogleCalendar>(
     location: { type: String },
     attendees: [{ type: String }],
     organizer: { type: String },
+    recurringEventId: { type: String },
   },
   {
     timestamps: true,
