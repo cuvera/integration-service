@@ -116,7 +116,6 @@ export class MessageProducer implements IMessageProducer {
       });
 
     } catch (error) {
-      console.error(`Error sending message to queue ${queue}: ${error}`);
       logger.error(`Error sending message to queue ${queue}: ${error}`);
       throw error;
     }

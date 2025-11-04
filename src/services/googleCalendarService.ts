@@ -317,6 +317,7 @@ class GoogleCalendarService {
   }
 
   async sendCalendarEventsMessage(payload: any): Promise<boolean> {
+    console.log("sending message to queue", payload);
     try {
       const topic = {
         eventType: topics.googleCalendar,
@@ -346,19 +347,18 @@ class GoogleCalendarService {
       const calendar = google.calendar({ version: "v3", auth: oAuth2Client });
       // Fetch events (for next 10 days in this example)
       const now = new Date();
-      const nextHour = new Date(now.getTime() + 60 * 60 * 1000);
+      const next24Hours = new Date(now.getTime() + 24 * 60 * 60 * 1000);
 
       const response = await calendar.events.list({
         calendarId: "primary", 
         timeMin: now.toISOString(),
-        timeMax: nextHour.toISOString(),
+        timeMax: next24Hours.toISOString(),
         maxResults: 50,
         singleEvents: true,
         orderBy: "startTime",
       });
 
       const events = response.data.items || [];
-      console.log("events", events);
       const meetings = events.map((event) => ({
         eventId: event.id!,
         summary: event.summary || 'No title',
@@ -370,7 +370,6 @@ class GoogleCalendarService {
         organizer: event.organizer?.email,
         recurringEventId: event.recurringEventId,
       }));
-      console.log("meetings", meetings);
       // Save to database
     let newMeetings: any[] = [];
     const bulkOps = meetings.map(meeting => ({
@@ -384,11 +383,34 @@ class GoogleCalendarService {
     if (bulkOps.length > 0) {
       const existingEvents = await GoogleCalendar.find({
         eventId: { $in: meetings.map(m => m.eventId) }
-      }).select('eventId -_id').lean();
+      }).select('eventId start end -_id').lean();
+      console.log("existingEvents", existingEvents);
       
-      const existingEventIds = new Set(existingEvents.map((e: any) => e.eventId));
-      
-      newMeetings = meetings.filter(meeting => !existingEventIds.has(meeting.eventId));
+      // Then filter in-memory for exact start/end matches
+      const existingEventIds = meetings
+        .filter((meeting: any) => {
+          return existingEvents.some((e: any) => {
+            const existingStart = e.start ? new Date(e.start).getTime() : null;
+            const existingEnd = e.end ? new Date(e.end).getTime() : null;
+            const meetingStart = meeting.start?.getTime ? meeting.start.getTime() : null;
+            const meetingEnd = meeting.end?.getTime ? meeting.end.getTime() : null;
+            
+            return e.eventId === meeting.eventId && 
+                  existingStart === meetingStart && 
+                  existingEnd === meetingEnd;
+          });
+        })
+        .map(m => m.eventId);
+
+      const existingEventIdSet = new Set(existingEventIds);
+      const now = new Date();
+      newMeetings = meetings.filter(meeting => 
+        !existingEventIdSet.has(meeting.eventId) && 
+        meeting.start && 
+        new Date(meeting.start) > now
+      );
+
+      console.log("newMeetings", newMeetings);
       await GoogleCalendar.bulkWrite(bulkOps);      
       if (newMeetings.length > 0) {
        await this.sendCalendarEventsMessage(newMeetings);
