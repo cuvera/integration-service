@@ -401,7 +401,7 @@ class GoogleCalendarService {
         const newMeetings = await GoogleCalendar.find({
           eventId: { $in: meetings.map(m => m.eventId) },
           isMessageSent: false
-        }).select('eventId start end -_id isMessageSent').lean();
+        }).lean();
 
         await GoogleCalendar.bulkWrite(bulkOps);
 
