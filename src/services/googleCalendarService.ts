@@ -44,7 +44,7 @@ class GoogleCalendarService {
     const CLIENT_ID = process.env.GMAIL_CLIENT_ID!;
     const CLIENT_SECRET = process.env.GMAIL_CLIENT_SECRET!;
     const REDIRECT_URI = process.env.GMAIL_REDIRECT_URI!;
-    const REFRESH_TOKEN = process.env.GMAIL_REFRESH_TOKEN!; 
+    const REFRESH_TOKEN = process.env.GMAIL_REFRESH_TOKEN!;
     return new OAuth2Client(CLIENT_ID, CLIENT_SECRET, REDIRECT_URI);
   }
 
@@ -70,7 +70,7 @@ class GoogleCalendarService {
     return authUrl;
   }
 
-  public async exchangeCodeForToken(code: string): Promise<{access_token: string, refresh_token: string}> {
+  public async exchangeCodeForToken(code: string): Promise<{ access_token: string, refresh_token: string }> {
     const oAuth2Client = this.getOAuth2Client();
     const { tokens } = await oAuth2Client.getToken(code);
     return {
@@ -97,7 +97,7 @@ class GoogleCalendarService {
     const oAuth2Client = this.getOAuth2Client();
     oAuth2Client.setCredentials({ refresh_token: refreshToken });
     const gmail = google.gmail({ version: "v1", auth: oAuth2Client });
-    
+
     let messageIds: string[] = [];
     let pageToken: string | undefined = undefined;
 
@@ -108,7 +108,7 @@ class GoogleCalendarService {
         pageToken,
         q: "has:attachment filename:ics",
       });
-      
+
       const messages = resp.data.messages || [];
       messageIds.push(...messages.map((m: any) => m.id!));
       pageToken = resp.data.nextPageToken || undefined;
@@ -117,10 +117,10 @@ class GoogleCalendarService {
     console.log("Total meeting messages found:", messageIds.length);
     const results: IMeetingEvent[] = [];
     const batchSize = 20;
-    
+
     for (let i = 0; i < messageIds.length; i += batchSize) {
       const batchIds = messageIds.slice(i, i + batchSize);
-      const fetchPromises = batchIds.map(id => 
+      const fetchPromises = batchIds.map(id =>
         gmail.users.messages.get({ userId: "me", id, format: "full" })
       );
       const responses = await Promise.all(fetchPromises);
@@ -129,7 +129,7 @@ class GoogleCalendarService {
         if (!msg.data.payload) continue;
         const headers = msg.data.payload.headers || [];
         const subject = headers.find((h: any) => h.name?.toLowerCase() === "subject")?.value || "";
-        
+
         const icsPart = this.findIcsPart(msg.data.payload.parts);
         let startTime = null;
         let endTime = null;
@@ -152,7 +152,7 @@ class GoogleCalendarService {
         const bodyPart = msg.data.payload.parts?.find(
           (p: any) => p.mimeType === "text/plain" || p.mimeType === "text/html"
         );
-        
+
         let body = "";
         if (bodyPart?.body?.data) {
           body = Buffer.from(bodyPart.body.data, "base64").toString("utf-8");
@@ -235,13 +235,13 @@ class GoogleCalendarService {
     const users = await this.getUsers();
     console.log(`✅ Found ${users.length} users in domain.`);
     const results: Record<string, ICalendarEvent[]> = {};
-    
+
     // Process users in batches to avoid rate limiting
     for (let i = 0; i < users.length; i += batchSize) {
       const batch = users.slice(i, i + batchSize);
       console.log(`🚀 Processing batch ${Math.floor(i / batchSize) + 1}: ${batch.length} users`);
 
-      const batchPromises = batch.map(user => 
+      const batchPromises = batch.map(user =>
         this.fetchWithRetry(user)
           .then(events => ({ user, events }))
           .catch(err => {
@@ -249,18 +249,18 @@ class GoogleCalendarService {
             return { user, events: [] as ICalendarEvent[] };
           })
       );
-      
+
       const batchResults = await Promise.all(batchPromises);
       batchResults.forEach(({ user, events }) => {
         results[user] = events;
       });
-      
+
       // Add delay between batches to avoid rate limiting
       if (i + batchSize < users.length) {
         await this.sleep(1000);
       }
     }
-    
+
     return results;
   }
 
@@ -268,11 +268,11 @@ class GoogleCalendarService {
     try {
       const auth = this.getAuth(email);
       const calendar = google.calendar({ version: "v3", auth });
-      
+
       const now = new Date();
       const later = new Date();
       later.setFullYear(now.getFullYear() + 1); // Fetch next year's events
-      
+
       const response = await calendar.events.list({
         calendarId: 'primary',
         timeMin: now.toISOString(),
@@ -316,26 +316,43 @@ class GoogleCalendarService {
     }
   }
 
-  async sendCalendarEventsMessage(payload: any): Promise<boolean> {
-    console.log("sending message to queue", payload);
+  async sendCalendarEventsMessage(payloads: any): Promise<boolean> {
+    console.log("sending message to queue", payloads);
     try {
       const topic = {
         eventType: topics.googleCalendar,
       };
-      const message = generateKafkaMessage(payload, {
-          tenantId: payload?.tenantId || '689ddc0411e4209395942bee',
-          eventType: topic.eventType,
+      const messages = generateKafkaMessage(payloads, {
+        tenantId: '689ddc0411e4209395942bee',
+        eventType: topic.eventType,
       });
-      await producer.sendMessage(topics.googleCalendar, message);
+      const messageResponse = await producer.sendMessage(topics.googleCalendar, messages);
+      console.log("messageResponse", messageResponse);
+
+      // Bulk update isMessageSent flag for all processed events
+      if (messageResponse === true) {
+        const eventIds = payloads
+          .filter((p: any) => p.eventId)
+          .map((p: any) => p.eventId);
+
+        if (eventIds.length > 0) {
+          await GoogleCalendar.updateMany(
+            { eventId: { $in: eventIds } },
+            { $set: { isMessageSent: true } }
+          );
+        }
+      }
       return true;
-      } catch (error) {
+
+
+    } catch (error) {
       logger.error(`Warning: Failed to send message to RabbitMQ: ${error}`);
       return false;
     }
-}
+  }
 
 
-  public async getCuveraCalendarEvents(){
+  public async getCuveraCalendarEvents() {
     try {
       const oAuth2Client = new google.auth.OAuth2(
         process.env.GMAIL_CLIENT_ID!,
@@ -350,7 +367,7 @@ class GoogleCalendarService {
       const next24Hours = new Date(now.getTime() + 24 * 60 * 60 * 1000);
 
       const response = await calendar.events.list({
-        calendarId: "primary", 
+        calendarId: "primary",
         timeMin: now.toISOString(),
         timeMax: next24Hours.toISOString(),
         maxResults: 50,
@@ -364,70 +381,71 @@ class GoogleCalendarService {
         summary: event.summary || 'No title',
         start: event.start?.dateTime || event.start?.date,
         end: event.end?.dateTime || event.end?.date,
-        hangoutLink: event.hangoutLink, 
+        hangoutLink: event.hangoutLink,
         location: event.location,
         attendees: event.attendees?.map((a) => a.email!),
         organizer: event.organizer?.email,
         recurringEventId: event.recurringEventId,
       }));
       // Save to database
-    let newMeetings: any[] = [];
-    const bulkOps = meetings.map(meeting => ({
-      updateOne: {
-        filter: { eventId: meeting.eventId },
-        update: { $set: meeting },
-        upsert: true
+      let newMeetings: any[] = [];
+      const bulkOps = meetings.map(meeting => ({
+        updateOne: {
+          filter: { eventId: meeting.eventId },
+          update: { $set: meeting },
+          upsert: true
+        }
+      }));
+
+      if (bulkOps.length > 0) {
+        const existingEvents = await GoogleCalendar.find({
+          eventId: { $in: meetings.map(m => m.eventId) }
+        }).select('eventId start end -_id isMessageSent').lean();
+        console.log("existingEvents", existingEvents);
+
+        // Then filter in-memory for exact start/end matches
+        const existingEventIds = meetings
+          .filter((meeting: any) => {
+            return existingEvents.some((e: any) => {
+              const existingStart = e.start ? new Date(e.start).getTime() : null;
+              const existingEnd = e.end ? new Date(e.end).getTime() : null;
+              const meetingStart = meeting.start?.getTime ? meeting.start.getTime() : null;
+              const meetingEnd = meeting.end?.getTime ? meeting.end.getTime() : null;
+
+              return e.eventId === meeting.eventId &&
+                e.isMessageSent === false &&
+                existingStart === meetingStart &&
+                existingEnd === meetingEnd;
+            });
+          })
+          .map(m => m.eventId);
+        console.log("existingEventIds", existingEventIds);
+        const existingEventIdSet = new Set(existingEventIds);
+        const now = new Date();
+        newMeetings = meetings.filter(meeting =>
+          !existingEventIdSet.has(meeting.eventId) &&
+          meeting.start &&
+          new Date(meeting.start) > now
+        );
+
+        console.log("newMeetings", newMeetings);
+        await GoogleCalendar.bulkWrite(bulkOps);
+        if (newMeetings.length > 0) {
+          await this.sendCalendarEventsMessage(newMeetings);
+          // console.log("sending last event", meetings[meetings.length - 1]);
+          // const lastRecord = meetings[meetings.length - 1]
+          // await this.sendCalendarEventsMessage([lastRecord]);
+        }
       }
-    }));
 
-    if (bulkOps.length > 0) {
-      const existingEvents = await GoogleCalendar.find({
-        eventId: { $in: meetings.map(m => m.eventId) }
-      }).select('eventId start end -_id').lean();
-      console.log("existingEvents", existingEvents);
-      
-      // Then filter in-memory for exact start/end matches
-      const existingEventIds = meetings
-        .filter((meeting: any) => {
-          return existingEvents.some((e: any) => {
-            const existingStart = e.start ? new Date(e.start).getTime() : null;
-            const existingEnd = e.end ? new Date(e.end).getTime() : null;
-            const meetingStart = meeting.start?.getTime ? meeting.start.getTime() : null;
-            const meetingEnd = meeting.end?.getTime ? meeting.end.getTime() : null;
-            
-            return e.eventId === meeting.eventId && 
-                  existingStart === meetingStart && 
-                  existingEnd === meetingEnd;
-          });
-        })
-        .map(m => m.eventId);
-
-      const existingEventIdSet = new Set(existingEventIds);
-      const now = new Date();
-      newMeetings = meetings.filter(meeting => 
-        !existingEventIdSet.has(meeting.eventId) && 
-        meeting.start && 
-        new Date(meeting.start) > now
-      );
-
-      console.log("newMeetings", newMeetings);
-      await GoogleCalendar.bulkWrite(bulkOps);      
-      if (newMeetings.length > 0) {
-       await this.sendCalendarEventsMessage(newMeetings);
-        // console.log("sending last event", meetings[meetings.length - 1]);
-        // const lastRecord = meetings[meetings.length - 1]
-        // await this.sendCalendarEventsMessage([lastRecord]);
-      }
-    }
-
-    return {
-      meetings
-    };
-  } catch (error) {
+      return {
+        meetings
+      };
+    } catch (error) {
       console.error(`Error fetching events`, error);
       throw error;
     }
-}
+  }
 
   private async sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
