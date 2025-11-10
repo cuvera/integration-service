@@ -1,5 +1,4 @@
 import amqp, { ChannelModel, ConfirmChannel } from 'amqplib';
-import { IMessageProducer } from '../interfaces/message.interface';
 import { logger } from '@cuvera/commons';
 
 export interface ProducerConfig {
@@ -9,6 +8,12 @@ export interface ProducerConfig {
   heartbeat?: number;
   prefetch?: number;
 }
+
+export interface IMessageProducer {
+    sendMessage(queue: string, message: any): Promise<boolean>;
+    close(): Promise<void>;
+    isConnected(): boolean;
+  }
 
 export class MessageProducer implements IMessageProducer {
   private connection: ChannelModel | null = null;
@@ -27,7 +32,7 @@ export class MessageProducer implements IMessageProducer {
       prefetch: config.prefetch || 10
     };
   }
-
+  // Initialize connection with proper error handling and heartbeat
   // Initialize connection with proper error handling
   async initialize(): Promise<void> {
     if (this.isInitialized) {
@@ -36,12 +41,10 @@ export class MessageProducer implements IMessageProducer {
 
     try {
       logger.debug('Connecting to RabbitMQ...');
-      
       // Create connection with heartbeat
       this.connection = await amqp.connect(this.config.url!, {
         heartbeat: this.config.heartbeat
       });
-
       // Create confirm channel for reliable publishing
       this.channel = await this.connection.createConfirmChannel();
       
@@ -60,10 +63,11 @@ export class MessageProducer implements IMessageProducer {
 
       this.isInitialized = true;
       this.reconnectAttempts = 0;
-
+      console.log('RabbitMQ connected successfully');
       logger.debug('RabbitMQ connected successfully');
 
     } catch (error) {
+      console.error(`Failed to connect to RabbitMQ: ${error}`);
       logger.error(`Failed to connect to RabbitMQ: ${error}`);
       
       if (!this.isShuttingDown) {
@@ -100,7 +104,7 @@ export class MessageProducer implements IMessageProducer {
 
       // Send with confirmation
       return new Promise((resolve, reject) => {
-        this.channel!.sendToQueue(queue, Buffer.from(JSON.stringify(message)), options, (err) => {
+        this.channel!.sendToQueue(queue, Buffer.from(JSON.stringify(message)), options, (err: any) => {
           if (err) {
             logger.error(`Failed to send message to queue ${queue}: ${err}`);
             reject(err);

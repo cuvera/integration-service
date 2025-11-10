@@ -10,13 +10,17 @@ export interface IGoogleCalendar extends Document {
   attendees: string[] | undefined;
   createdAt: Date;
   updatedAt: Date;
+  organizer: { type: String },
+  recurringEventId: string | null | undefined,
+  isMessageSent: boolean,
+
 }
 
 const GoogleCalendarSchema = new Schema<IGoogleCalendar>(
   {
-    eventId: { 
-      type: String, 
-      required: true, 
+    eventId: {
+      type: String,
+      required: true,
       unique: true,
       index: true
     },
@@ -26,6 +30,9 @@ const GoogleCalendarSchema = new Schema<IGoogleCalendar>(
     hangoutLink: { type: String },
     location: { type: String },
     attendees: [{ type: String }],
+    organizer: { type: String },
+    recurringEventId: { type: String },
+    isMessageSent: { type: Boolean, default: false }
   },
   {
     timestamps: true,

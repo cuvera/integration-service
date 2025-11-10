@@ -3,9 +3,8 @@ import { JWT, OAuth2Client } from 'google-auth-library';
 import { GoogleCalendar } from '../models/GoogleCalendar';
 import { generateKafkaMessage, logger } from "@cuvera/commons";
 import { topics } from '../config/rabbitmq';
-import { 
-  sendMessage, 
-} from '@cuvera/commons';
+import { producer } from '../messaging/producer';
+
 interface IMeetingEvent {
   id: string;
   subject: string;
@@ -45,7 +44,7 @@ class GoogleCalendarService {
     const CLIENT_ID = process.env.GMAIL_CLIENT_ID!;
     const CLIENT_SECRET = process.env.GMAIL_CLIENT_SECRET!;
     const REDIRECT_URI = process.env.GMAIL_REDIRECT_URI!;
-    const REFRESH_TOKEN = process.env.GMAIL_REFRESH_TOKEN!; 
+    const REFRESH_TOKEN = process.env.GMAIL_REFRESH_TOKEN!;
     return new OAuth2Client(CLIENT_ID, CLIENT_SECRET, REDIRECT_URI);
   }
 
@@ -71,7 +70,7 @@ class GoogleCalendarService {
     return authUrl;
   }
 
-  public async exchangeCodeForToken(code: string): Promise<{access_token: string, refresh_token: string}> {
+  public async exchangeCodeForToken(code: string): Promise<{ access_token: string, refresh_token: string }> {
     const oAuth2Client = this.getOAuth2Client();
     const { tokens } = await oAuth2Client.getToken(code);
     return {
@@ -98,7 +97,7 @@ class GoogleCalendarService {
     const oAuth2Client = this.getOAuth2Client();
     oAuth2Client.setCredentials({ refresh_token: refreshToken });
     const gmail = google.gmail({ version: "v1", auth: oAuth2Client });
-    
+
     let messageIds: string[] = [];
     let pageToken: string | undefined = undefined;
 
@@ -109,7 +108,7 @@ class GoogleCalendarService {
         pageToken,
         q: "has:attachment filename:ics",
       });
-      
+
       const messages = resp.data.messages || [];
       messageIds.push(...messages.map((m: any) => m.id!));
       pageToken = resp.data.nextPageToken || undefined;
@@ -118,10 +117,10 @@ class GoogleCalendarService {
     console.log("Total meeting messages found:", messageIds.length);
     const results: IMeetingEvent[] = [];
     const batchSize = 20;
-    
+
     for (let i = 0; i < messageIds.length; i += batchSize) {
       const batchIds = messageIds.slice(i, i + batchSize);
-      const fetchPromises = batchIds.map(id => 
+      const fetchPromises = batchIds.map(id =>
         gmail.users.messages.get({ userId: "me", id, format: "full" })
       );
       const responses = await Promise.all(fetchPromises);
@@ -130,7 +129,7 @@ class GoogleCalendarService {
         if (!msg.data.payload) continue;
         const headers = msg.data.payload.headers || [];
         const subject = headers.find((h: any) => h.name?.toLowerCase() === "subject")?.value || "";
-        
+
         const icsPart = this.findIcsPart(msg.data.payload.parts);
         let startTime = null;
         let endTime = null;
@@ -153,7 +152,7 @@ class GoogleCalendarService {
         const bodyPart = msg.data.payload.parts?.find(
           (p: any) => p.mimeType === "text/plain" || p.mimeType === "text/html"
         );
-        
+
         let body = "";
         if (bodyPart?.body?.data) {
           body = Buffer.from(bodyPart.body.data, "base64").toString("utf-8");
@@ -236,13 +235,13 @@ class GoogleCalendarService {
     const users = await this.getUsers();
     console.log(`✅ Found ${users.length} users in domain.`);
     const results: Record<string, ICalendarEvent[]> = {};
-    
+
     // Process users in batches to avoid rate limiting
     for (let i = 0; i < users.length; i += batchSize) {
       const batch = users.slice(i, i + batchSize);
       console.log(`🚀 Processing batch ${Math.floor(i / batchSize) + 1}: ${batch.length} users`);
 
-      const batchPromises = batch.map(user => 
+      const batchPromises = batch.map(user =>
         this.fetchWithRetry(user)
           .then(events => ({ user, events }))
           .catch(err => {
@@ -250,18 +249,18 @@ class GoogleCalendarService {
             return { user, events: [] as ICalendarEvent[] };
           })
       );
-      
+
       const batchResults = await Promise.all(batchPromises);
       batchResults.forEach(({ user, events }) => {
         results[user] = events;
       });
-      
+
       // Add delay between batches to avoid rate limiting
       if (i + batchSize < users.length) {
         await this.sleep(1000);
       }
     }
-    
+
     return results;
   }
 
@@ -269,11 +268,11 @@ class GoogleCalendarService {
     try {
       const auth = this.getAuth(email);
       const calendar = google.calendar({ version: "v3", auth });
-      
+
       const now = new Date();
       const later = new Date();
       later.setFullYear(now.getFullYear() + 1); // Fetch next year's events
-      
+
       const response = await calendar.events.list({
         calendarId: 'primary',
         timeMin: now.toISOString(),
@@ -317,27 +316,29 @@ class GoogleCalendarService {
     }
   }
 
-  async sendCalendarEventsMessage(payload: any): Promise<boolean> {
+  async sendCalendarEventsMessage(payloads: any): Promise<boolean> {
+    console.log("sendCalendarEventsMessage", payloads);
     try {
       const topic = {
         eventType: topics.googleCalendar,
       };
-      const message = generateKafkaMessage(payload, {
-          tenantId: payload?.tenantId || '689ddc0411e4209395942bee',
-          eventType: topic.eventType,
+      const messages = generateKafkaMessage(payloads, {
+        tenantId: '689ddc0411e4209395942bee',
+        eventType: topic.eventType,
       });
-      console.log('Sending message to Kafka:', message);
-      await sendMessage(topics.googleCalendar, message);
+      await producer.sendMessage(topics.googleCalendar, messages);
+
       return true;
-      } catch (error) {
-        console.error(`Error sending message to RabbitMQ: ${error}`);
+
+
+    } catch (error) {
       logger.error(`Warning: Failed to send message to RabbitMQ: ${error}`);
       return false;
     }
-}
+  }
 
 
-  public async getCuveraCalendarEvents(){
+  public async getCuveraCalendarEvents() {
     try {
       const oAuth2Client = new google.auth.OAuth2(
         process.env.GMAIL_CLIENT_ID!,
@@ -347,70 +348,76 @@ class GoogleCalendarService {
       oAuth2Client.setCredentials({ refresh_token: process.env.GMAIL_REFRESH_TOKEN! });
 
       const calendar = google.calendar({ version: "v3", auth: oAuth2Client });
-
-      // Fetch events (for next 10 days in this example)
+      // Fetch events (for next 24 hours)
       const now = new Date();
-      const tenDaysLater = new Date();
-      tenDaysLater.setDate(now.getDate() + 10);
+      const next24Hours = new Date(now.getTime() + 24 * 60 * 60 * 1000);
 
       const response = await calendar.events.list({
-        calendarId: "primary", 
-        // timeMin: now.toISOString(),
-        //timeMax: tenDaysLater.toISOString(),
+        calendarId: "primary",
+        timeMin: now.toISOString(),
+        timeMax: next24Hours.toISOString(),
         maxResults: 50,
         singleEvents: true,
         orderBy: "startTime",
       });
 
       const events = response.data.items || [];
-
       const meetings = events.map((event) => ({
         eventId: event.id!,
         summary: event.summary || 'No title',
         start: event.start?.dateTime || event.start?.date,
         end: event.end?.dateTime || event.end?.date,
-        hangoutLink: event.hangoutLink, 
+        hangoutLink: event.hangoutLink,
         location: event.location,
         attendees: event.attendees?.map((a) => a.email!),
+        organizer: event.organizer?.email,
+        recurringEventId: event.recurringEventId,
       }));
 
-      // Save to database
-    let newMeetings: any[] = [];
-    const bulkOps = meetings.map(meeting => ({
-      updateOne: {
-        filter: { eventId: meeting.eventId },
-        update: { $set: meeting },
-        upsert: true
+      if (meetings.length === 0) {
+        return { meetings: [] };
       }
-    }));
 
-    if (bulkOps.length > 0) {
-      const existingEvents = await GoogleCalendar.find({
+      // **KEY FIX**: Check which events already exist BEFORE bulkWrite
+      const existingEventIds = await GoogleCalendar.find({
         eventId: { $in: meetings.map(m => m.eventId) }
-      }).select('eventId -_id').lean();
-      
-      const existingEventIds = new Set(existingEvents.map((e: any) => e.eventId));
-      
-      newMeetings = meetings.filter(meeting => !existingEventIds.has(meeting.eventId));
-      
-      await GoogleCalendar.bulkWrite(bulkOps);      
+      }).distinct('eventId');
+
+      console.log("existingEventIds", existingEventIds);
+
+      // Identify truly new meetings (not in database yet)
+      const newMeetings = meetings.filter(m => !existingEventIds.includes(m.eventId));
+
+      console.log("newMeetings", newMeetings);
+
+      // Now perform bulk write
+      const bulkOps = meetings.map(meeting => ({
+        updateOne: {
+          filter: { eventId: meeting.eventId },
+          update: { $set: { ...meeting, isMessageSent: false } },
+          upsert: true
+        }
+      }));
+
+      await GoogleCalendar.bulkWrite(bulkOps);
+
+      // Send messages for new meetings only
       if (newMeetings.length > 0) {
         await this.sendCalendarEventsMessage(newMeetings);
-        // console.log("sending last event", meetings[meetings.length - 1]);
-        //const lastRecord = meetings[meetings.length - 1]
-        //await this.sendCalendarEventsMessage([lastRecord]);
-      }
-    }
 
-    return {
-      meetings
-    };
-  } catch (error) {
+        // Mark messages as sent for new meetings
+        await GoogleCalendar.updateMany(
+          { eventId: { $in: newMeetings.map(m => m.eventId) } },
+          { $set: { isMessageSent: true } }
+        );
+      }
+
+      return { meetings };
+    } catch (error) {
       console.error(`Error fetching events`, error);
       throw error;
     }
-}
-
+  }
   private async sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
