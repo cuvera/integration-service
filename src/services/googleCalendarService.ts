@@ -398,7 +398,7 @@ class GoogleCalendarService {
       }));
 
       if (bulkOps.length > 0) {
-        const newMeetings = await GoogleCalendar.find({
+        newMeetings = await GoogleCalendar.find({
           eventId: { $in: meetings.map(m => m.eventId) },
           isMessageSent: false
         }).lean();
