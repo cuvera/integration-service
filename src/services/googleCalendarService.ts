@@ -413,7 +413,6 @@ class GoogleCalendarService {
               const meetingEnd = meeting.end?.getTime ? meeting.end.getTime() : null;
 
               return e.eventId === meeting.eventId &&
-                e.isMessageSent === false &&
                 existingStart === meetingStart &&
                 existingEnd === meetingEnd;
             });
