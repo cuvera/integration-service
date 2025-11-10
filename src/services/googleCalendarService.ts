@@ -317,7 +317,7 @@ class GoogleCalendarService {
   }
 
   async sendCalendarEventsMessage(payloads: any): Promise<boolean> {
-    console.log("sending message to queue", payloads);
+    console.log("sendCalendarEventsMessage", payloads);
     try {
       const topic = {
         eventType: topics.googleCalendar,
@@ -327,7 +327,6 @@ class GoogleCalendarService {
         eventType: topic.eventType,
       });
       const messageResponse = await producer.sendMessage(topics.googleCalendar, messages);
-      console.log("messageResponse", messageResponse);
 
       // Bulk update isMessageSent flag for all processed events
       if (messageResponse === true) {
@@ -387,6 +386,7 @@ class GoogleCalendarService {
         organizer: event.organizer?.email,
         recurringEventId: event.recurringEventId,
       }));
+
       // Save to database
       let newMeetings: any[] = [];
       const bulkOps = meetings.map(meeting => ({
@@ -398,42 +398,15 @@ class GoogleCalendarService {
       }));
 
       if (bulkOps.length > 0) {
-        const existingEvents = await GoogleCalendar.find({
-          eventId: { $in: meetings.map(m => m.eventId) }
+        const newMeetings = await GoogleCalendar.find({
+          eventId: { $in: meetings.map(m => m.eventId) },
+          isMessageSent: false
         }).select('eventId start end -_id isMessageSent').lean();
-        console.log("existingEvents", existingEvents);
 
-        // Then filter in-memory for exact start/end matches
-        const existingEventIds = meetings
-          .filter((meeting: any) => {
-            return existingEvents.some((e: any) => {
-              const existingStart = e.start ? new Date(e.start).getTime() : null;
-              const existingEnd = e.end ? new Date(e.end).getTime() : null;
-              const meetingStart = meeting.start?.getTime ? meeting.start.getTime() : null;
-              const meetingEnd = meeting.end?.getTime ? meeting.end.getTime() : null;
-
-              return e.eventId === meeting.eventId &&
-                existingStart === meetingStart &&
-                existingEnd === meetingEnd;
-            });
-          })
-          .map(m => m.eventId);
-        console.log("existingEventIds", existingEventIds);
-        const existingEventIdSet = new Set(existingEventIds);
-        const now = new Date();
-        newMeetings = meetings.filter(meeting =>
-          !existingEventIdSet.has(meeting.eventId) &&
-          meeting.start &&
-          new Date(meeting.start) > now
-        );
-
-        console.log("newMeetings", newMeetings);
         await GoogleCalendar.bulkWrite(bulkOps);
+
         if (newMeetings.length > 0) {
           await this.sendCalendarEventsMessage(newMeetings);
-          // console.log("sending last event", meetings[meetings.length - 1]);
-          // const lastRecord = meetings[meetings.length - 1]
-          // await this.sendCalendarEventsMessage([lastRecord]);
         }
       }
 
