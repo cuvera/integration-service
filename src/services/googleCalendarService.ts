@@ -404,7 +404,7 @@ class GoogleCalendarService {
         }).lean();
 
         await GoogleCalendar.bulkWrite(bulkOps);
-
+        console.log("newMeetings", newMeetings);
         if (newMeetings.length > 0) {
           await this.sendCalendarEventsMessage(newMeetings);
         }
