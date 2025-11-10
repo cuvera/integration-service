@@ -326,21 +326,8 @@ class GoogleCalendarService {
         tenantId: '689ddc0411e4209395942bee',
         eventType: topic.eventType,
       });
-      const messageResponse = await producer.sendMessage(topics.googleCalendar, messages);
+      await producer.sendMessage(topics.googleCalendar, messages);
 
-      // Bulk update isMessageSent flag for all processed events
-      if (messageResponse === true) {
-        const eventIds = payloads
-          .filter((p: any) => p.eventId)
-          .map((p: any) => p.eventId);
-
-        if (eventIds.length > 0) {
-          await GoogleCalendar.updateMany(
-            { eventId: { $in: eventIds } },
-            { $set: { isMessageSent: true } }
-          );
-        }
-      }
       return true;
 
 
@@ -361,7 +348,7 @@ class GoogleCalendarService {
       oAuth2Client.setCredentials({ refresh_token: process.env.GMAIL_REFRESH_TOKEN! });
 
       const calendar = google.calendar({ version: "v3", auth: oAuth2Client });
-      // Fetch events (for next 10 days in this example)
+      // Fetch events (for next 24 hours)
       const now = new Date();
       const next24Hours = new Date(now.getTime() + 24 * 60 * 60 * 1000);
 
@@ -387,38 +374,50 @@ class GoogleCalendarService {
         recurringEventId: event.recurringEventId,
       }));
 
-      // Save to database
-      let newMeetings: any[] = [];
+      if (meetings.length === 0) {
+        return { meetings: [] };
+      }
+
+      // **KEY FIX**: Check which events already exist BEFORE bulkWrite
+      const existingEventIds = await GoogleCalendar.find({
+        eventId: { $in: meetings.map(m => m.eventId) }
+      }).distinct('eventId');
+
+      console.log("existingEventIds", existingEventIds);
+
+      // Identify truly new meetings (not in database yet)
+      const newMeetings = meetings.filter(m => !existingEventIds.includes(m.eventId));
+
+      console.log("newMeetings", newMeetings);
+
+      // Now perform bulk write
       const bulkOps = meetings.map(meeting => ({
         updateOne: {
           filter: { eventId: meeting.eventId },
-          update: { $set: meeting },
+          update: { $set: { ...meeting, isMessageSent: false } },
           upsert: true
         }
       }));
 
-      if (bulkOps.length > 0) {
-        newMeetings = await GoogleCalendar.find({
-          eventId: { $in: meetings.map(m => m.eventId) },
-          isMessageSent: false
-        }).lean();
+      await GoogleCalendar.bulkWrite(bulkOps);
 
-        await GoogleCalendar.bulkWrite(bulkOps);
-        console.log("newMeetings", newMeetings);
-        if (newMeetings.length > 0) {
-          await this.sendCalendarEventsMessage(newMeetings);
-        }
+      // Send messages for new meetings only
+      if (newMeetings.length > 0) {
+        await this.sendCalendarEventsMessage(newMeetings);
+
+        // Mark messages as sent for new meetings
+        await GoogleCalendar.updateMany(
+          { eventId: { $in: newMeetings.map(m => m.eventId) } },
+          { $set: { isMessageSent: true } }
+        );
       }
 
-      return {
-        meetings
-      };
+      return { meetings };
     } catch (error) {
       console.error(`Error fetching events`, error);
       throw error;
     }
   }
-
   private async sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
