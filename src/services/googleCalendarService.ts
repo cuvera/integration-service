@@ -1,10 +1,9 @@
 import { google } from 'googleapis';
 import { JWT, OAuth2Client } from 'google-auth-library';
 import { GoogleCalendar } from '../models/GoogleCalendar';
-import { generateKafkaMessage, logger } from "@cuvera/commons";
-import { topics } from '../config/rabbitmq';
-import { producer } from '../messaging/producer';
-
+import { RRule } from 'rrule';
+import { getLocalTime } from '../utils/timeUtils';
+import { messagingService } from './messagingService';
 interface IMeetingEvent {
   id: string;
   subject: string;
@@ -318,23 +317,7 @@ class GoogleCalendarService {
 
   async sendCalendarEventsMessage(payloads: any): Promise<boolean> {
     console.log("sendCalendarEventsMessage", payloads);
-    try {
-      const topic = {
-        eventType: topics.googleCalendar,
-      };
-      const messages = generateKafkaMessage(payloads, {
-        tenantId: '689ddc0411e4209395942bee',
-        eventType: topic.eventType,
-      });
-      await producer.sendMessage(topics.googleCalendar, messages);
-
-      return true;
-
-
-    } catch (error) {
-      logger.error(`Warning: Failed to send message to RabbitMQ: ${error}`);
-      return false;
-    }
+    return messagingService.sendCalendarEventsMessage(payloads);
   }
 
 
@@ -360,7 +343,6 @@ class GoogleCalendarService {
         singleEvents: true,
         orderBy: "startTime",
       });
-
       const events = response.data.items || [];
       const meetings = events.map((event) => ({
         eventId: event.id!,
@@ -373,7 +355,6 @@ class GoogleCalendarService {
         organizer: event.organizer?.email,
         recurringEventId: event.recurringEventId,
       }));
-
       if (meetings.length === 0) {
         return { meetings: [] };
       }
@@ -403,7 +384,7 @@ class GoogleCalendarService {
 
       // Send messages for new meetings only
       if (newMeetings.length > 0) {
-        await this.sendCalendarEventsMessage(newMeetings);
+        await messagingService.sendCalendarEventsMessage(newMeetings);
 
         // Mark messages as sent for new meetings
         await GoogleCalendar.updateMany(
@@ -418,6 +399,119 @@ class GoogleCalendarService {
       throw error;
     }
   }
+
+
+  public async processRecurringEvents(): Promise<void> {
+    try {
+      console.log("🔄 Processing recurring events...");
+
+      // 1. Fetch only master recurring events
+      const recurringEvents = await GoogleCalendar.find({
+        isRecurring: true,
+        recurrenceRule: { $exists: true, $ne: null }
+      });
+
+      console.log(`Found ${recurringEvents.length} recurring master events.`);
+
+      const now = new Date();
+      const next24Hours = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+
+      let newInstances = 0;
+
+
+      for (const master of recurringEvents) {
+        try {
+          if (!master.recurrenceRule || !master.start) continue;
+
+          // 2. Build RRule object
+          const ruleOptions = RRule.parseString(master.recurrenceRule);
+          ruleOptions.dtstart = new Date(master.start);
+
+          const rule = new RRule(ruleOptions);
+
+          // 3. Find occurrences in next 24 hours
+          const occurrences = rule.between(now, next24Hours, true);
+
+          for (const occurrenceStart of occurrences) {
+            const recurrenceId = occurrenceStart.toISOString();
+            console.log("recurrenceId", recurrenceId);
+            console.log("master.uid", master.uid);
+            // 4. Check if this instance already exists
+            const existing = await GoogleCalendar.findOne({
+              uid: master.uid,
+              recurrenceId: recurrenceId
+            });
+
+            if (existing) continue;
+
+            // 5. Calculate end time using master’s duration
+            let duration = 3600000; // default 1 hour
+
+            if (master.start && master.end) {
+              const startDate = new Date(master.start);
+              const endDate = new Date(master.end);
+
+              if (!isNaN(startDate.getTime()) && !isNaN(endDate.getTime())) {
+                duration = endDate.getTime() - startDate.getTime();
+              }
+            }
+            const occurrenceEnd = new Date(occurrenceStart.getTime() + duration);
+
+            // 6. Build instance UID (not used for duplicate check)
+            const instanceUid = `${master.uid}_${new Date().getTime()}`;
+            const startTime = await getLocalTime(occurrenceStart.toISOString());
+            const endTime = await getLocalTime(occurrenceEnd.toISOString());
+            console.log("startTime", startTime);
+            console.log("endTime", endTime);
+            // 7. Create child instance event
+            const instanceEvent = {
+              uid: master.uid,
+              eventId: instanceUid, // optional
+              summary: master.summary,
+              location: master.location,
+              start: startTime,
+              end: endTime,
+              organizer: master.organizer,
+              attendees: master.attendees,
+              status: "scheduled",
+              hangoutLink: master.hangoutLink,
+
+              // Recurrence fields
+              isRecurring: false,
+              recurringEventId: master.uid, // master event ID
+              recurrenceId: recurrenceId,       // actual occurrence ID from date
+
+              // Messaging
+              isMessageSent: false
+            };
+
+            // 8. Save new instance
+            await GoogleCalendar.create(instanceEvent);
+
+            // 9. Send event to RabbitMQ (if needed)
+            await messagingService.sendCalendarEventsMessage([instanceEvent]);
+
+            // 10. Mark as sent
+            await GoogleCalendar.updateOne(
+              { eventId: instanceUid },
+              { $set: { isMessageSent: true } }
+            );
+
+            newInstances++;
+            console.log(`  ➕ Created instance for ${master.summary} → ${recurrenceId}`);
+          }
+        } catch (err) {
+          console.error(`❌ Error processing event ${master.eventId}:`, err);
+        }
+      }
+
+      console.log(`✅ Done. Created ${newInstances} new recurring instances.`);
+    } catch (error) {
+      console.error("Error in processRecurringEvents:", error);
+    }
+  }
+
+
   private async sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
