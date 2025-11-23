@@ -9,7 +9,7 @@ import googleCalendarRoutes from './routes/googleCalendarRoutes';
 import { globalErrorHandler } from './middlewares/errorHandler';
 import { setupSwagger } from './config/swagger';
 import { AppError } from './utils/appError';
-import { schedulerService } from './services/schedulerService';
+// import { schedulerService } from './services/schedulerService';
 import { extractUserPrincipal, initializeConfig } from '@cuvera/commons';
 import { producer } from './messaging/producer';
 import { emailConfig } from './config/emailConfig';
@@ -50,7 +50,7 @@ async function initializeApp() {
     await producer.initialize();
 
     // 4. Start scheduler
-    schedulerService.start();
+    //schedulerService.start();
 
     // 5. Start the server
     server = app.listen(PORT, () => {
