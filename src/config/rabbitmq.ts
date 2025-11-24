@@ -1,4 +1,4 @@
 export const topics = {
-    googleCalendar: process?.env?.MESSAGING_TOP_GCAL || 'dev.inetgration.googleCalendar.fetched.v1',
+    googleCalendar: process?.env?.MESSAGING_TOP_GCAL || 'dev.inetgration.meetings.fetched.v1',
 }
 

@@ -1,6 +1,7 @@
 import mongoose, { Document, Schema } from 'mongoose';
 
 export interface IGoogleCalendar extends Document {
+  uid: string;
   eventId: string;
   summary: string;
   start: string | null | undefined;
@@ -13,11 +14,19 @@ export interface IGoogleCalendar extends Document {
   organizer: { type: String },
   recurringEventId: string | null | undefined,
   isMessageSent: boolean,
+  isRecurring: boolean,
+  recurrenceRule: string | null | undefined,
+  exceptionDates: string[] | null | undefined,
+  recurrenceId: string | null | undefined,
 
 }
 
 const GoogleCalendarSchema = new Schema<IGoogleCalendar>(
   {
+    uid: {
+      type: String,
+      required: true,
+    },
     eventId: {
       type: String,
       required: true,
@@ -32,7 +41,11 @@ const GoogleCalendarSchema = new Schema<IGoogleCalendar>(
     attendees: [{ type: String }],
     organizer: { type: String },
     recurringEventId: { type: String },
-    isMessageSent: { type: Boolean, default: false }
+    isMessageSent: { type: Boolean, default: false },
+    isRecurring: { type: Boolean, default: false },
+    recurrenceRule: { type: String },
+    exceptionDates: { type: [String] },
+    recurrenceId: { type: String },
   },
   {
     timestamps: true,

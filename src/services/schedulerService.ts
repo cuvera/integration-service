@@ -7,7 +7,7 @@ export class SchedulerService {
   private cronJob: ScheduledTask | null = null;
   private isRunning = false;
 
-  private constructor() {}
+  private constructor() { }
 
   public static getInstance(): SchedulerService {
     if (!SchedulerService.instance) {
@@ -23,18 +23,21 @@ export class SchedulerService {
       return;
     }
 
-    // Schedule job to run every minute
-      this.cronJob = schedule('* * * * *', async () => {
-        try {
-          await googleCalendarService.getCuveraCalendarEvents();
-        } catch (error: any) {
-          logger.error('Error in scheduled job:', error);
-        }
-      }, {
-        timezone: 'UTC'  
-      });
+    // Schedule job to run every hour
+    this.cronJob = schedule('* * * * *', async () => {
+      try {
+        logger.info('⏰ Running scheduled job: processCalendarEvents');
+        await googleCalendarService.processRecurringEvents();
+        //await googleCalendarService.getCuveraCalendarEvents();
+      } catch (error: any) {
+        logger.error('Error in scheduled job:', error);
+      }
+    }, {
+      timezone: 'UTC'
+    });
 
     this.isRunning = true;
+    logger.info('Scheduler started successfully');
   }
 
   /**
