@@ -186,13 +186,7 @@ export class EmailService {
 
                     const raw = msg.source.toString("utf-8");
 
-                    // Check if it contains calendar data
-                    if (!raw.includes('BEGIN:VCALENDAR')) {
-                        console.log(`  ⏭️ UID ${msg.uid} - Not a calendar invite`);
-                        skipped++;
-                        continue;
-                    }
-
+                    // Attempt to parse calendar invite (supports ICS and fallback cases)
                     const calendarEvent = await parseCalendarInvite(raw);
                     console.log("calendarEvent", calendarEvent);
                     if (calendarEvent) {
