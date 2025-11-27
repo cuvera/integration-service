@@ -4,8 +4,8 @@ export interface IGoogleCalendar extends Document {
   uid: string;
   eventId: string;
   summary: string;
-  start: string | null | undefined;
-  end: string | null | undefined;
+  start: Date | null | undefined;
+  end: Date | null | undefined;
   hangoutLink: string | null | undefined;
   location: string | null | undefined;
   attendees: string[] | undefined;
@@ -34,8 +34,8 @@ const GoogleCalendarSchema = new Schema<IGoogleCalendar>(
       index: true
     },
     summary: { type: String, required: true },
-    start: { type: String },
-    end: { type: String },
+    start: { type: Date },
+    end: { type: Date },
     hangoutLink: { type: String },
     location: { type: String },
     attendees: [{ type: String }],
