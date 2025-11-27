@@ -2,7 +2,6 @@ import { google } from 'googleapis';
 import { JWT, OAuth2Client } from 'google-auth-library';
 import { GoogleCalendar } from '../models/GoogleCalendar';
 import { RRule } from 'rrule';
-import { toUTC } from '../utils/timeUtils';
 import { messagingService } from './messagingService';
 interface IMeetingEvent {
   id: string;
@@ -425,15 +424,18 @@ class GoogleCalendarService {
 
           // 2. Build RRule object
           const ruleOptions = RRule.parseString(master.recurrenceRule);
+          delete ruleOptions.tzid;
           ruleOptions.dtstart = new Date(master.start);
-
+          console.log("ruleOptions", ruleOptions);
+          console.log("master.start", master.start);
+          console.log("new Date(master.start)", new Date(master.start));
           const rule = new RRule(ruleOptions);
 
           // 3. Find occurrences in next 24 hours
           const occurrences = rule.between(now, next24Hours, true);
 
           for (const occurrenceStart of occurrences) {
-            console.log("occurrenceStart", occurrenceStart);
+            console.log("occurrenceStart", occurrenceStart)
             const recurrenceId = occurrenceStart.toISOString();
             console.log("recurrenceId", recurrenceId);
             console.log("master.uid", master.uid);
@@ -460,8 +462,8 @@ class GoogleCalendarService {
 
             // 6. Build instance UID (not used for duplicate check)
             const instanceUid = `${master.uid}_${new Date().getTime()}`;
-            const startTime = occurrenceStart.toISOString();
-            const endTime = occurrenceStart.toISOString();
+            const startTime = (occurrenceStart.toISOString());
+            const endTime = (occurrenceEnd.toISOString());
             console.log("startTime", startTime);
             console.log("endTime", endTime);
             // 7. Create child instance event
