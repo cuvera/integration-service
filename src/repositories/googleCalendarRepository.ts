@@ -1,5 +1,5 @@
 import { GoogleCalendar } from "../models/GoogleCalendar";
-import { getLocalTime } from "../utils/timeUtils";
+import { toUTC } from "../utils/timeUtils";
 
 export class GoogleCalendarRepository {
     async markMessagesSentByEventIds(eventIds: string[]): Promise<void> {
@@ -11,8 +11,10 @@ export class GoogleCalendarRepository {
 
     async upsertFromParsedInvite(event: any): Promise<void> {
         const existing = await GoogleCalendar.findOne({ uid: event.uid });
-        const startTime = event.start ? await getLocalTime(new Date(event.start).toISOString()) : null;
-        const endTime = event.end ? await getLocalTime(new Date(event.end).toISOString()) : null;
+        console.log(" event.start", event.start);
+        console.log(" event.end", event.end);
+        const startTime = event.start ? toUTC(event.start) : null;
+        const endTime = event.end ? toUTC(event.end) : null;
 
         if (existing) {
             await GoogleCalendar.updateOne(
