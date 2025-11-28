@@ -1,6 +1,6 @@
 services:
-  cuvera-ingestion-service:
-    image: ci-dev.cuvera.ai/cuvera-ingestion-service:latest
+  integration-service:
+    image: ci-dev.cuvera.ai/integration-service:latest
     container_name: ${SERVICE_NAME}
     ports:
       - "7011:7011"
