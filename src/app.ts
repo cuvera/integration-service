@@ -73,9 +73,7 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(cookieParser());
 app.use(extractUserPrincipal());
 
-// API routes
-app.use('/api/v1/teams', teamsRoutes);
-app.use('/api/v1/google-calendar', googleCalendarRoutes);
+
 
 // Setup Swagger
 setupSwagger(app);
@@ -89,7 +87,10 @@ baseRouter.get('/health', (req, res) => {
     timestamp: new Date().toISOString(),
   });
 });
-app.use('/cuvera-core-service', baseRouter);
+// API routes
+app.use('/api/v1/teams', teamsRoutes);
+app.use('/api/v1/google-calendar', googleCalendarRoutes);
+app.use('/integration-service', baseRouter);
 
 // 404 handler
 app.all('*', (req, res, next) => {
