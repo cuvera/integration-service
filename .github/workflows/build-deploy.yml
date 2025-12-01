@@ -156,10 +156,12 @@ jobs:
           VM_HOST="${{ steps.deploy_vars.outputs.VM_HOST }}"
           SERVICE_NAME="${{ steps.deploy_vars.outputs.SERVICE_NAME }}"
           
-          # Clean variables to remove carriage returns and whitespace
           VM_HOST=$(echo "$VM_HOST" | tr -d '\r\n' | xargs)
           SERVICE_NAME=$(echo "$SERVICE_NAME" | tr -d '\r\n' | xargs)
-          
+
+          # remove URL-encoded * characters if any
+          VM_HOST=$(echo "$VM_HOST" | sed 's/%2A//g')
+
           HEALTH_URL="https://${VM_HOST}/${SERVICE_NAME}/health"
           echo "Health check URL: $HEALTH_URL"
-          curl -f "$HEALTH_URL" || exit 1
+          curl -f "$HEALTH_URL"
