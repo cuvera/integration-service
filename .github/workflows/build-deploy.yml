@@ -11,19 +11,13 @@ env:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     environment: dev
     
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
-          
       - name: Create npmrc files
         env:
           SECRETS_CONTEXT: ${{ toJson(secrets) }}
@@ -42,63 +36,32 @@ jobs:
           registry=https://registry.npmjs.org/
           EOF
           fi
-          
-      - name: Install dependencies
-        run: |
-          npm cache clean --force
-          npm install --audit=false
-          
-      - name: Build application
-        run: npm run build
-        
-      - name: Prepare artifacts
-        run: |
-          echo "Files in current directory:"
-          ls -la
-          echo "Contents of .npmrc:"
-          cat .npmrc || echo ".npmrc not found"
-          
-          # Rename dotfiles to avoid upload issues
-          cp .npmrc npmrc-file
-          
-          echo "Files after renaming:"
-          ls -la npmrc-file
-          
-      - name: Archive artifacts
-        uses: actions/upload-artifact@v4
+
+      - name: Log in to Docker registry
+        uses: docker/login-action@v3
         with:
-          name: dev-build-${{ github.sha }}
-          path: |
-            dist/
-            package.json
-            package-lock.json
-            npmrc-file
-          retention-days: 3
+          registry: ${{ secrets.DOCKER_REGISTRY_URL }}
+          username: ${{ secrets.DOCKER_REGISTRY_USERNAME }}
+          password: ${{ secrets.DOCKER_REGISTRY_PASSWORD }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ secrets.DOCKER_REGISTRY_URL }}/integration-service:${{ github.sha }}
+            ${{ secrets.DOCKER_REGISTRY_URL }}/integration-service:latest
 
   deploy:
     needs: build
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     environment: dev
     if: github.ref == 'refs/heads/dev'
     
     steps:
-      - name: Download artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: dev-build-${{ github.sha }}
-          
-      - name: Restore and verify files
-        run: |
-          echo "Files after download:"
-          ls -la
-          
-          # Rename files back to dotfiles
-          mv npmrc-file .npmrc
-          
-          echo "Files after restoring names:"
-          ls -la
-          echo "Checking .npmrc file:"
-          cat .npmrc
+      - name: Checkout code
+        uses: actions/checkout@v4
           
       - name: Parse deployment variables
         id: deploy_vars
@@ -126,11 +89,19 @@ jobs:
           SECRETS_CONTEXT: ${{ toJson(secrets) }}
           VARS_CONTEXT: ${{ toJson(vars) }}
         run: |
-          # Create .env file from all secrets and vars automatically
-          echo "NODE_ENV=development" > .env
+          # Create .env file with Docker Compose variables first
+          cat > .env << EOF
+          # Docker Compose Configuration
+          DOCKER_REGISTRY_URL=${{ secrets.DOCKER_REGISTRY_URL }}
+          IMAGE_TAG=${{ github.sha }}
+          SERVICE_NAME=${{ steps.deploy_vars.outputs.SERVICE_NAME }}
           
-          # Dump all secrets to .env (excluding sensitive keys)
-          echo "$SECRETS_CONTEXT" | jq -r 'to_entries[] | select(.key != "SSH_PRIVATE_KEY" and .key != "GITHUB_TOKEN" and .key != "NPMRC_CONTENT" and .key != "AZURE_DEVOPS_TOKEN") | "\(.key)=\(.value)"' >> .env
+          # Application Environment
+          NODE_ENV=development
+          EOF
+          
+          # Add all secrets (excluding Docker/GitHub specific ones)
+          echo "$SECRETS_CONTEXT" | jq -r 'to_entries[] | select(.key != "SSH_PRIVATE_KEY" and .key != "GITHUB_TOKEN" and .key != "NPMRC_CONTENT" and .key != "AZURE_DEVOPS_TOKEN" and .key != "DOCKER_REGISTRY_URL" and .key != "DOCKER_REGISTRY_USERNAME" and .key != "DOCKER_REGISTRY_PASSWORD") | "\(.key)=\(.value)"' >> .env
           
           # Process DEV_ENV variable (handle \r\n properly)
           echo "$VARS_CONTEXT" | jq -r '.DEV_ENV // ""' | sed 's/\\r\\n/\n/g' | grep -v '^#' | grep -v '^$' | while IFS='=' read -r key value; do
@@ -154,10 +125,10 @@ jobs:
           # Create deployment directory
           ssh "${VM_USER}@${VM_HOST}" "mkdir -p '/home/cuvera/${SERVICE_NAME}' && echo 'Directory created: /home/cuvera/${SERVICE_NAME}' && ls -la /home/cuvera/"
           
-          # Upload files
-          scp -r dist/ package*.json .env .npmrc "${VM_USER}@${VM_HOST}:/home/cuvera/${SERVICE_NAME}/"
+          # Upload docker-compose.yml and .env
+          scp docker-compose.yml .env "${VM_USER}@${VM_HOST}:/home/cuvera/${SERVICE_NAME}/"
           
-          # Deploy and restart service
+          # Deploy with docker-compose
           ssh "${VM_USER}@${VM_HOST}" << ENDSSH
           cd "/home/cuvera/${SERVICE_NAME}"
           
@@ -166,18 +137,17 @@ jobs:
           echo "Files in directory:"
           ls -la
           
-          # Install production dependencies
-          npm cache clean --force
-          npm install --only=production --audit=false
+          # Docker registry login
+          echo "${{ secrets.DOCKER_REGISTRY_PASSWORD }}" | docker login ${{ secrets.DOCKER_REGISTRY_URL }} -u ${{ secrets.DOCKER_REGISTRY_USERNAME }} --password-stdin
           
-          # Check PM2 status before stopping
-          pm2 list
+          # Deploy with docker-compose
+          docker-compose pull
+          docker-compose down
+          docker-compose up -d
           
-          # Restart service with PM2
-          pm2 stop "${SERVICE_NAME}" || true
-          pm2 delete "${SERVICE_NAME}" || true
-          pm2 start dist/app.js --name "${SERVICE_NAME}" --update-env
-          pm2 save
+          # Show status
+          docker-compose ps
+          docker-compose logs --tail=20
           ENDSSH
           
       - name: Health check
@@ -192,4 +162,3 @@ jobs:
           
           HEALTH_URL="https://${VM_HOST}/${SERVICE_NAME}/health"
           echo "Health check URL: $HEALTH_URL"
-          curl -f "$HEALTH_URL" || exit 1
