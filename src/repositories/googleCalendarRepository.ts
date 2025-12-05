@@ -11,8 +11,6 @@ export class GoogleCalendarRepository {
 
     async upsertFromParsedInvite(event: any): Promise<void> {
         const existing = await GoogleCalendar.findOne({ uid: event.uid });
-        console.log(" event.start", event.start);
-        console.log(" event.end", event.end);
         const startTime = event.start ? toUTC(event.start) : null;
         const endTime = event.end ? toUTC(event.end) : null;
 
@@ -34,6 +32,8 @@ export class GoogleCalendarRepository {
                         hangoutLink: event.hangoutLink,
                         isMessageSent: false,
                         recurringEventId: event.recurringEventId,
+                        status: event.status,
+
                     },
                 }
             );
@@ -50,7 +50,7 @@ export class GoogleCalendarRepository {
             end: endTime,
             organizer: event.organizer,
             attendees: event.attendees,
-            status: "scheduled",
+            status: event.status,
             isRecurring: event.isRecurring,
             recurrenceRule: event.recurrenceRule,
             exceptionDates: event.exceptionDates,

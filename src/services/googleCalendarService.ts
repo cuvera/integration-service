@@ -476,14 +476,13 @@ class GoogleCalendarService {
               end: endTime,
               organizer: master.organizer,
               attendees: master.attendees,
-              status: "scheduled",
+              status: master.status,
               hangoutLink: master.hangoutLink,
 
               // Recurrence fields
               isRecurring: false,
               recurringEventId: master.uid, // master event ID
               recurrenceId: recurrenceId,       // actual occurrence ID from date
-
               // Messaging
               isMessageSent: false
             };

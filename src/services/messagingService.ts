@@ -9,7 +9,7 @@ export class MessagingService {
                 eventType: topics.googleCalendar,
             };
             const messages = generateKafkaMessage(payloads, {
-                tenantId: '689ddc0411e4209395942bee',
+                tenantId: process.env.TENANT_ID || '689ddc0411e4209395942bee',
                 eventType: topic.eventType,
             });
             await producer.sendMessage(topics.googleCalendar, messages);

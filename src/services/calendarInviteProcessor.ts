@@ -90,6 +90,7 @@ export async function parseCalendarInvite(emailContent: string): Promise<Calenda
             ...(eventData.location && { location: eventData.location }),
             ...(eventData.start && { start: eventData.start }),
             ...(eventData.end && { end: eventData.end }),
+            ...(eventData.status && { status: eventData.status }),
             ...(eventData['GOOGLE-CONFERENCE'] && { hangoutLink: eventData['GOOGLE-CONFERENCE'] }),
             ...(eventData.attendee && {
                 attendees: Array.isArray(eventData.attendee)
