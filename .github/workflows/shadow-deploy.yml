@@ -1,0 +1,192 @@
+name: Main Build and Deploy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  NODE_VERSION: '22.18.0'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    environment: shadow
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          
+      - name: Create npmrc files
+        run: |          
+          # Create .npmrc for Azure DevOps authentication
+          if [ -n "${{ secrets.NPMRC_CONTENT }}" ]; then
+            echo "${{ secrets.NPMRC_CONTENT }}" | sed 's/\\n/\n/g' > .npmrc
+          else
+            cat > .npmrc << EOF
+          @cuvera:registry=https://pkgs.dev.azure.com/ashwinialike/_packaging/ashwinialike/npm/registry/
+          //pkgs.dev.azure.com/ashwinialike/_packaging/ashwinialike/npm/registry/:username=ashwinialike
+          //pkgs.dev.azure.com/ashwinialike/_packaging/ashwinialike/npm/registry/:_password=${{ secrets.AZURE_DEVOPS_TOKEN }}
+          //pkgs.dev.azure.com/ashwinialike/_packaging/ashwinialike/npm/registry/:email=info@cuvera.ai
+          //pkgs.dev.azure.com/ashwinialike/_packaging/ashwinialike/npm/registry/:always-auth=true
+          registry=https://registry.npmjs.org/
+          EOF
+          fi
+          
+      - name: Install dependencies
+        run: |
+          npm cache clean --force
+          npm install --audit=false
+          
+      - name: Build application
+        run: npm run build
+        
+      - name: Prepare artifacts
+        run: |
+          echo "Files in current directory:"
+          ls -la
+          
+          # Rename dotfiles to avoid upload issues
+          cp .npmrc npmrc-file
+          
+          echo "Files after renaming:"
+          ls -la npmrc-file
+          
+      - name: Archive artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: main-build-${{ github.sha }}
+          path: |
+            dist/
+            package.json
+            package-lock.json
+            npmrc-file
+          retention-days: 3
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: shadow
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: main-build-${{ github.sha }}
+          
+      - name: Restore files
+        run: |
+          echo "Files after download:"
+          ls -la
+          
+          # Rename files back to dotfiles
+          mv npmrc-file .npmrc
+          
+          echo "Files after restoring names:"
+          ls -la
+          
+      - name: Create environment file
+        env:
+          SHADOW_ENV: ${{ vars.SHADOW_ENV }}
+          SECRETS_CONTEXT: ${{ toJson(secrets) }}
+          VARS_CONTEXT: ${{ toJson(vars) }}
+        run: |
+          # Create .env file from SHADOW_ENV variable
+          echo "$SHADOW_ENV" | tr ',' '\n' > .env
+          
+          # Display .env for debugging (be careful with sensitive data)
+          echo "Created .env file:"
+          cat .env
+          
+      - name: Setup SSH
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+          
+      - name: Add host to known_hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H ${{ vars.VM_HOST }} >> ~/.ssh/known_hosts
+          
+      - name: Deploy to shadow server
+        env:
+          VM_USER: ${{ vars.VM_USER }}
+          VM_HOST: ${{ vars.VM_HOST }}
+          SHADOW_ENV: ${{ vars.SHADOW_ENV }}
+        run: |
+          # Extract SERVICE_NAME from SHADOW_ENV
+          SERVICE_NAME=$(echo "$SHADOW_ENV" | tr ',' '\n' | grep '^SERVICE_NAME=' | cut -d'=' -f2 | tr -d '\r\n' | xargs)
+          
+          echo "Deploying to: ${VM_USER}@${VM_HOST}"
+          echo "Service name: ${SERVICE_NAME}"
+          echo "Target directory: /home/cuvera/${SERVICE_NAME}"
+
+          # Create deployment directory
+          ssh "${VM_USER}@${VM_HOST}" "mkdir -p '/home/cuvera/${SERVICE_NAME}' && echo 'Directory created successfully' && ls -la /home/cuvera/"
+          
+          # Upload files
+          scp -r dist/ package*.json .env .npmrc "${VM_USER}@${VM_HOST}:/home/cuvera/${SERVICE_NAME}/"
+          
+          # Deploy and restart service
+          ssh "${VM_USER}@${VM_HOST}" << ENDSSH
+          set -e
+          cd "/home/cuvera/${SERVICE_NAME}"
+          
+          # Verify we're in the right directory and files exist
+          echo "Current directory: \$(pwd)"
+          echo "Files in directory:"
+          ls -la
+          
+          # Verify .env file exists and has content
+          echo "Checking .env file:"
+          if [ -f .env ]; then
+            echo ".env file exists"
+            cat .env
+          else
+            echo "ERROR: .env file not found!"
+            exit 1
+          fi
+          
+          # Install production dependencies
+          npm cache clean --force
+          npm install --only=production --audit=false
+          
+          # Check PM2 status before stopping
+          pm2 list
+          
+          # Restart service with PM2
+          pm2 stop "${SERVICE_NAME}" || true
+          pm2 delete "${SERVICE_NAME}" || true
+          pm2 start dist/app.js --name "${SERVICE_NAME}" --update-env
+          pm2 save
+          
+          echo "Deployment completed successfully"
+          ENDSSH
+          
+      - name: Health check
+        env:
+          VM_HOST: ${{ vars.VM_HOST }}
+          SHADOW_ENV: ${{ vars.SHADOW_ENV }}
+        run: |
+          sleep 15
+          
+          # Extract SERVICE_NAME from SHADOW_ENV
+          SERVICE_NAME=$(echo "$SHADOW_ENV" | tr ',' '\n' | grep '^SERVICE_NAME=' | cut -d'=' -f2 | tr -d '\r\n' | xargs)
+          
+          HEALTH_URL="https://${VM_HOST}/${SERVICE_NAME}/health"
+          echo "Health check URL: $HEALTH_URL"
+          
+          if curl -f "$HEALTH_URL"; then
+            echo "Health check passed!"
+          else
+            echo "Health check failed!"
+            exit 1
+          fi
