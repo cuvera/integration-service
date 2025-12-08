@@ -1,10 +1,10 @@
-name: Main Build and Deploy
+name: Shadow Build and Deploy
 
 on:
   push:
-    branches: [main]
+    branches: [shadow]
   pull_request:
-    branches: [main]
+    branches: [shadow]
 
 env:
   NODE_VERSION: '22.18.0'
@@ -62,7 +62,7 @@ jobs:
       - name: Archive artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: main-build-${{ github.sha }}
+          name: shadow-build-${{ github.sha }}
           path: |
             dist/
             package.json
@@ -74,13 +74,13 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     environment: shadow
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/shadow'
     
     steps:
       - name: Download artifacts
         uses: actions/download-artifact@v4
         with:
-          name: main-build-${{ github.sha }}
+          name: shadow-build-${{ github.sha }}
           
       - name: Restore files
         run: |
