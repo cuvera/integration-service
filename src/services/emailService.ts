@@ -187,11 +187,18 @@ export class EmailService {
                     const raw = msg.source.toString("utf-8");
 
                     // Attempt to parse calendar invite (supports ICS and fallback cases)
-                    const calendarEvent = await parseCalendarInvite(raw);
+                    let calendarEvent = await parseCalendarInvite(raw);
                     console.log("calendarEvent", calendarEvent);
                     if (calendarEvent) {
                         console.log(`  📅 Found calendar event: ${calendarEvent.summary}`);
-                        await googleCalendarRepository.upsertFromParsedInvite(calendarEvent);
+                        const savedCalendarEvent: any = await googleCalendarRepository.upsertFromParsedInvite(calendarEvent);
+                        if (savedCalendarEvent.previousStart) {
+                            calendarEvent = {
+                                ...calendarEvent,
+                                previousStart: savedCalendarEvent.previousStart,
+                                previousEnd: savedCalendarEvent.previousEnd
+                            };
+                        }
                         await messagingService.sendCalendarEventsMessage([calendarEvent]);
                         await googleCalendarRepository.markMessagesSentByEventIds([calendarEvent.eventId]);
                         // Mark as seen after successful processing
