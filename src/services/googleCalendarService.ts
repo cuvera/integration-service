@@ -484,7 +484,9 @@ class GoogleCalendarService {
               recurringEventId: master.uid, // master event ID
               recurrenceId: recurrenceId,       // actual occurrence ID from date
               // Messaging
-              isMessageSent: false
+              isMessageSent: false,
+              previousStart: master.previousStart,
+              previousEnd: master.previousEnd,
             };
 
             // 8. Save new instance
