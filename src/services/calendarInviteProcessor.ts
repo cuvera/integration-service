@@ -20,6 +20,8 @@ export interface CalendarEvent {
     recurringEventId?: string | null;
     recurrenceId?: string | null;
     origin?: string;
+    previousStart?: Date | null;
+    previousEnd?: Date | null;
 }
 
 function parseHappeningNow(raw: string): CalendarEvent | null {

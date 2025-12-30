@@ -19,6 +19,8 @@ export interface IGoogleCalendar extends Document {
   exceptionDates: string[] | null | undefined,
   recurrenceId: string | null | undefined,
   status: string | null | undefined,
+  previousStart: Date | null | undefined,
+  previousEnd: Date | null | undefined,
 
 }
 
@@ -48,6 +50,8 @@ const GoogleCalendarSchema = new Schema<IGoogleCalendar>(
     exceptionDates: { type: [String] },
     recurrenceId: { type: String },
     status: { type: String },
+    previousStart: { type: Date },
+    previousEnd: { type: Date },
   },
   {
     timestamps: true,

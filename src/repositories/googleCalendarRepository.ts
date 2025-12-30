@@ -1,4 +1,4 @@
-import { GoogleCalendar } from "../models/GoogleCalendar";
+import { GoogleCalendar, IGoogleCalendar } from "../models/GoogleCalendar";
 import { toUTC } from "../utils/timeUtils";
 
 export class GoogleCalendarRepository {
@@ -9,13 +9,13 @@ export class GoogleCalendarRepository {
         );
     }
 
-    async upsertFromParsedInvite(event: any): Promise<void> {
-        const existing = await GoogleCalendar.findOne({ uid: event.uid });
+    async upsertFromParsedInvite(event: any): Promise<IGoogleCalendar> {
+        const existing: any = await GoogleCalendar.findOne({ uid: event.uid });
         const startTime = event.start ? toUTC(event.start) : null;
         const endTime = event.end ? toUTC(event.end) : null;
 
         if (existing) {
-            await GoogleCalendar.updateOne(
+            const updatedEvent: any = await GoogleCalendar.findOneAndUpdate(
                 { uid: event.uid },
                 {
                     $set: {
@@ -24,6 +24,8 @@ export class GoogleCalendarRepository {
                         location: event.location,
                         start: startTime,
                         end: endTime,
+                        previousStart: existing.start,
+                        previousEnd: existing.end,
                         organizer: event.organizer,
                         attendees: event.attendees,
                         isRecurring: event.isRecurring,
@@ -33,14 +35,14 @@ export class GoogleCalendarRepository {
                         isMessageSent: false,
                         recurringEventId: event.recurringEventId,
                         status: event.status,
-
                     },
-                }
+                },
+                { new: true, returnDocument: 'after' }
             );
-            return;
+            return updatedEvent;
         }
 
-        await GoogleCalendar.create({
+        const newEvent = await GoogleCalendar.create({
             uid: event.uid,
             eventId: event.eventId,
             summary: event.summary,
@@ -57,7 +59,10 @@ export class GoogleCalendarRepository {
             hangoutLink: event.hangoutLink,
             isMessageSent: false,
             recurringEventId: event.recurringEventId,
+            previousStart: startTime,
+            previousEnd: endTime,
         });
+        return newEvent;
     }
 }
 
