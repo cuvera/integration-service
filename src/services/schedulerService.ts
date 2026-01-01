@@ -24,7 +24,7 @@ export class SchedulerService {
     }
 
     // Schedule job to run every hour
-    this.cronJob = schedule('0 * * * *', async () => {
+    this.cronJob = schedule('* * * * *', async () => {
       try {
         logger.info('⏰ Running scheduled job: processCalendarEvents');
         await googleCalendarService.processRecurringEvents();

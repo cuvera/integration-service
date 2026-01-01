@@ -426,19 +426,14 @@ class GoogleCalendarService {
           const ruleOptions = RRule.parseString(master.recurrenceRule);
           delete ruleOptions.tzid;
           ruleOptions.dtstart = new Date(master.start);
-          console.log("ruleOptions", ruleOptions);
-          console.log("master.start", master.start);
-          console.log("new Date(master.start)", new Date(master.start));
           const rule = new RRule(ruleOptions);
 
           // 3. Find occurrences in next 24 hours
           const occurrences = rule.between(now, next24Hours, true);
 
           for (const occurrenceStart of occurrences) {
-            console.log("occurrenceStart", occurrenceStart)
             const recurrenceId = occurrenceStart.toISOString();
-            console.log("recurrenceId", recurrenceId);
-            console.log("master.uid", master.uid);
+
             // 4. Check if this instance already exists
             const existing = await GoogleCalendar.findOne({
               uid: master.uid,
@@ -464,8 +459,6 @@ class GoogleCalendarService {
             const instanceUid = `${master.uid}_${new Date().getTime()}`;
             const startTime = (occurrenceStart.toISOString());
             const endTime = (occurrenceEnd.toISOString());
-            console.log("startTime", startTime);
-            console.log("endTime", endTime);
             // 7. Create child instance event
             const instanceEvent = {
               uid: master.uid,
@@ -476,7 +469,7 @@ class GoogleCalendarService {
               end: endTime,
               organizer: master.organizer,
               attendees: master.attendees,
-              status: master.status,
+              status: master.status === 'scheduled' ? 'CONFIRMED' : master.status,
               hangoutLink: master.hangoutLink,
 
               // Recurrence fields
