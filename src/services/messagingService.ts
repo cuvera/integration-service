@@ -4,6 +4,7 @@ import { producer } from "../messaging/producer";
 
 export class MessagingService {
     async sendCalendarEventsMessage(payloads: any): Promise<boolean> {
+        console.log("payloads", payloads);
         try {
             const topic = {
                 eventType: topics.googleCalendar,
